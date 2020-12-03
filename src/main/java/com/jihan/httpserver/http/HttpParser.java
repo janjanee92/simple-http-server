@@ -17,12 +17,16 @@ public class HttpParser {
     private static final int LF = 0x0A; // 10
 
 
-    public HttpRequest parseHttpRequest(InputStream inputStream) {
+    public HttpRequest parseHttpRequest(InputStream inputStream) throws HttpParsingException {
         InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.US_ASCII);
 
         HttpRequest request = new HttpRequest();
 
-        parseRequestLine(reader, request);
+        try {
+            parseRequestLine(reader, request);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         parseHeaders(reader, request);
         parseBody(reader, request);
 
@@ -30,16 +34,49 @@ public class HttpParser {
 
     }
 
-    private void parseRequestLine(InputStreamReader reader, HttpRequest request) {
+    private void parseRequestLine(InputStreamReader reader, HttpRequest request) throws IOException, HttpParsingException {
+        StringBuffer processingDataBuffer = new StringBuffer();
+
+        boolean methodParsed = false;
+        boolean requestTargetParsed = false;
+
         int _byte;
-//        while((_byte = reader.read()) >= 0) {
-//            if (_byte == CR) {
-//                _byte = reader.read();
-//                if (_byte == LF) {
-//                    return;
-//                }
-//            }
-//        }
+        while((_byte = reader.read()) >= 0) {
+            if (_byte == CR) {
+                _byte = reader.read();
+                if (_byte == LF) {
+                    LOGGER.debug("Request VERSION to Process  {}", processingDataBuffer.toString());
+
+                    if (!methodParsed || !requestTargetParsed) {
+                        throw new HttpParsingException(HttpStatusCode.CLIENT_ERROR_400_BAD_REQUEST);
+                    }
+
+                    return;
+                }
+            }
+
+            if (_byte == SP) {
+                // TODO Process previous data
+                if (!methodParsed) {
+                    LOGGER.debug("Request METHOD to Process  {}", processingDataBuffer.toString());
+                    request.setMethod(processingDataBuffer.toString());
+                    methodParsed = true;
+                } else if (!requestTargetParsed) {
+                    LOGGER.debug("Request REQ to Process  {}", processingDataBuffer.toString());
+                    requestTargetParsed = true;
+                } else {
+                    throw new HttpParsingException(HttpStatusCode.CLIENT_ERROR_400_BAD_REQUEST);
+                }
+                processingDataBuffer.delete(0, processingDataBuffer.length());
+            } else {
+                processingDataBuffer.append((char)_byte);
+                if (!methodParsed) {
+                    if (processingDataBuffer.length() > HttpMethod.MAX_LENGTH) {
+                        throw new HttpParsingException(HttpStatusCode.SERVER_ERROR_501_NOT_IMPLEMENTED);
+                    }
+                }
+            }
+        }
     }
 
     private void parseHeaders(InputStreamReader reader, HttpRequest request) {
